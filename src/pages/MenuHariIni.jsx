@@ -42,9 +42,11 @@ export default function MenuHariIni() {
     const s = getSesiAktif();
     return s === 'tutup' ? 'pagi' : s;
   });
-  const [editingSesi, setEditingSesi] = useState(null); // sesi yang sedang diedit
+  const [editingSesi, setEditingSesi] = useState(null);
   const [draftMenu, setDraftMenu] = useState({});
   const [savedMenus, setSavedMenus] = useState({});
+  const [loadingMenus, setLoadingMenus] = useState(false);
+  const [savingMenu, setSavingMenu] = useState(false);
   const [now, setNow] = useState(new Date());
 
   // Jam real-time untuk deteksi sesi
@@ -53,13 +55,16 @@ export default function MenuHariIni() {
     return () => clearInterval(t);
   }, []);
 
-  // Load semua menu untuk tanggal yang ditampilkan
+  // Load semua menu dari Supabase saat tanggal berubah
   useEffect(() => {
-    const menus = {};
-    for (const sesi of ['pagi', 'siang', 'sore']) {
-      menus[sesi] = getMenu(viewDate, sesi);
-    }
-    setSavedMenus(menus);
+    setLoadingMenus(true);
+    Promise.all(
+      ['pagi', 'siang', 'sore'].map((sesi) =>
+        getMenu(viewDate, sesi).then((m) => [sesi, m])
+      )
+    ).then((entries) => {
+      setSavedMenus(Object.fromEntries(entries));
+    }).finally(() => setLoadingMenus(false));
   }, [viewDate]);
 
   const isToday = dateKey(viewDate) === dateKey(today);
@@ -82,12 +87,19 @@ export default function MenuHariIni() {
     setDraftMenu({});
   };
 
-  // Simpan edit
-  const saveEdit = (sesi) => {
-    saveMenu(viewDate, sesi, draftMenu);
-    setSavedMenus((prev) => ({ ...prev, [sesi]: { ...draftMenu } }));
-    setEditingSesi(null);
-    setDraftMenu({});
+  // Simpan edit ke Supabase
+  const saveEdit = async (sesi) => {
+    setSavingMenu(true);
+    try {
+      await saveMenu(viewDate, sesi, draftMenu);
+      setSavedMenus((prev) => ({ ...prev, [sesi]: { ...draftMenu } }));
+      setEditingSesi(null);
+      setDraftMenu({});
+    } catch (err) {
+      alert('Gagal menyimpan menu: ' + err.message);
+    } finally {
+      setSavingMenu(false);
+    }
   };
 
   // Status sesi: aktif / selesai / akan datang
@@ -242,7 +254,9 @@ export default function MenuHariIni() {
             </div>
 
             <div className="p-5">
-              {isEditing ? (
+              {loadingMenus ? (
+                <div className="text-center py-8 text-slate-400 text-sm">Memuat menu...</div>
+              ) : isEditing ? (
                 /* Form edit */
                 <div className="space-y-4">
                   {FIELDS.map(({ key, label, icon: Icon, color, placeholder }) => {
@@ -272,11 +286,12 @@ export default function MenuHariIni() {
                   <div className="flex gap-2 pt-2">
                     <button
                       onClick={() => saveEdit(sesi)}
+                      disabled={savingMenu}
                       className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700
-                        text-white text-sm font-semibold rounded-lg transition-colors"
+                        disabled:bg-emerald-400 text-white text-sm font-semibold rounded-lg transition-colors"
                     >
                       <Check className="w-4 h-4" />
-                      Simpan
+                      {savingMenu ? 'Menyimpan...' : 'Simpan'}
                     </button>
                     <button
                       onClick={cancelEdit}

@@ -1,16 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { User, CreditCard, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import QRScannerSection from '../components/QRScannerSection';
 import StatusBadge from '../components/StatusBadge';
-import { santriList } from '../data/dummyData';
 import { markSudahMakan, getAbsensi, getSesiAktif } from '../lib/attendanceStore';
 import { SESI_CONFIG } from '../lib/menuStore';
+import { fetchStudents, getCachedStudents } from '../lib/studentStore';
 
 export default function ScanKartu() {
   const [result, setResult] = useState(null);
   const [scanError, setScanError] = useState('');
 
   const sesi = getSesiAktif();
+
+  // Pastikan data santri sudah di-cache saat halaman dibuka
+  useEffect(() => {
+    fetchStudents();
+  }, []);
 
   const handleScan = (rawText) => {
     setScanError('');
@@ -27,7 +32,8 @@ export default function ScanKartu() {
       if (parsed.nik) nik = parsed.nik;
     } catch { /* plain NIK */ }
 
-    const santri = santriList.find((s) => s.nik === nik);
+    const students = getCachedStudents();
+    const santri = students.find((s) => s.nik === nik);
     if (!santri) {
       setScanError(`NIK "${nik}" tidak ditemukan dalam data santri.`);
       return;
@@ -108,7 +114,7 @@ export default function ScanKartu() {
                   </div>
                   <div>
                     <p className="text-base font-semibold text-slate-800">{result.nama}</p>
-                    <p className="text-xs text-slate-500">Kelas {result.kelas}</p>
+                    <p className="text-xs text-slate-500 font-mono">{result.nik}</p>
                   </div>
                 </div>
 

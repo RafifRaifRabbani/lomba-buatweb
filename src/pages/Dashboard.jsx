@@ -2,17 +2,22 @@ import { Users, CheckCircle2, XCircle, TrendingUp, Clock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useState, useEffect } from 'react';
 import DashboardCard from '../components/DashboardCard';
-import { santriList } from '../data/dummyData';
 import { getTodayStats, getWeeklyStats, getSesiAktif } from '../lib/attendanceStore';
-import { SESI_CONFIG } from '../lib/menuStore';
-
-const TOTAL = santriList.length;
+import { fetchStudents, getCachedStudents } from '../lib/studentStore';
 
 export default function Dashboard() {
   const [time, setTime] = useState(new Date());
+  const [total, setTotal] = useState(getCachedStudents().length);
   const sesi = getSesiAktif();
-  const [stats, setStats] = useState(getTodayStats(TOTAL, sesi));
-  const [chartData, setChartData] = useState(getWeeklyStats(TOTAL));
+  const [stats, setStats] = useState(getTodayStats(total, sesi));
+  const [chartData, setChartData] = useState(getWeeklyStats(total));
+
+  // Fetch total santri dari Supabase
+  useEffect(() => {
+    fetchStudents().then((data) => {
+      setTotal(data.length);
+    });
+  }, []);
 
   // Jam real-time
   useEffect(() => {
@@ -20,12 +25,13 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Refresh stats tiap 3 detik supaya sync dengan halaman scan
+  // Refresh stats tiap 3 detik
   useEffect(() => {
     const refresh = () => {
+      const t = getCachedStudents().length;
       const currentSesi = getSesiAktif();
-      setStats(getTodayStats(TOTAL, currentSesi));
-      setChartData(getWeeklyStats(TOTAL));
+      setStats(getTodayStats(t, currentSesi));
+      setChartData(getWeeklyStats(t));
     };
     refresh();
     const interval = setInterval(refresh, 3000);
@@ -45,7 +51,7 @@ export default function Dashboard() {
     second: '2-digit',
   });
 
-  const percentage = TOTAL > 0 ? Math.round((stats.sudahMengambil / TOTAL) * 100) : 0;
+  const percentage = total > 0 ? Math.round((stats.sudahMengambil / total) * 100) : 0;
 
   // Hanya tampilkan bar untuk hari yang punya data (sudah !== null)
   const visibleChartData = chartData.map((d) => ({

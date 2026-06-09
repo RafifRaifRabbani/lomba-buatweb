@@ -1,65 +1,23 @@
 /**
- * Menu store menggunakan localStorage.
- * Struktur:
- * {
- *   "2026-06-10": {
- *     pagi:  { menuUtama, lauk, sayur, minuman, buah },
- *     siang: { menuUtama, lauk, sayur, minuman, buah },
- *     sore:  { menuUtama, lauk, sayur, minuman, buah },
- *   },
- *   ...
- * }
- *
- * lauk disimpan sebagai string (koma-separated) supaya mudah diedit via <input>
+ * Menu store — baca/tulis ke Supabase.
+ * Tabel: menu
+ * Kolom: id, tanggal (date), sesi (text), menu_utama, lauk, sayur, minuman, buah
  */
 
-const STORAGE_KEY = 'menu_makan';
+import { supabase } from './supabase';
 
-const EMPTY_MENU = { menuUtama: '', lauk: '', sayur: '', minuman: '', buah: '' };
-
-function getStore() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveStore(store) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-}
+export const EMPTY_MENU = { menuUtama: '', lauk: '', sayur: '', minuman: '', buah: '' };
 
 function dateKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
-/** Ambil menu untuk tanggal & sesi tertentu */
-export function getMenu(dateObj, sesi) {
-  const store = getStore();
-  return store[dateKey(dateObj)]?.[sesi] ?? { ...EMPTY_MENU };
-}
-
-/** Simpan menu untuk tanggal & sesi tertentu */
-export function saveMenu(dateObj, sesi, menuData) {
-  const store = getStore();
-  const key = dateKey(dateObj);
-  if (!store[key]) store[key] = {};
-  store[key][sesi] = menuData;
-  saveStore(store);
-}
-
 /**
  * Tentukan sesi aktif berdasarkan jam sekarang.
- * Return: 'pagi' | 'siang' | 'sore' | 'tutup'
- * Pagi:  08:00 – 10:59
- * Siang: 12:00 – 14:59
- * Sore:  16:00 – 17:59
- * Lainnya: tutup
+ * pagi: 08–11, siang: 12–15, sore: 16–18, lainnya: tutup
  */
 export function getSesiAktif() {
-  const now = new Date();
-  const h = now.getHours();
+  const h = new Date().getHours();
   if (h >= 8 && h < 11) return 'pagi';
   if (h >= 12 && h < 15) return 'siang';
   if (h >= 16 && h < 18) return 'sore';
@@ -67,10 +25,76 @@ export function getSesiAktif() {
 }
 
 export const SESI_CONFIG = {
-  pagi:  { label: 'Makan Pagi',  jam: '08.00 – 11.00', color: 'amber' },
+  pagi:  { label: 'Makan Pagi',  jam: '08.00 – 11.00', color: 'amber'   },
   siang: { label: 'Makan Siang', jam: '12.00 – 15.00', color: 'primary' },
-  sore:  { label: 'Makan Sore',  jam: '16.00 – 18.00', color: 'sky' },
+  sore:  { label: 'Makan Sore',  jam: '16.00 – 18.00', color: 'sky'     },
 };
+
+/** Konversi row Supabase → format internal */
+function rowToMenu(row) {
+  if (!row) return { ...EMPTY_MENU };
+  return {
+    menuUtama: row.menu_utama ?? '',
+    lauk:      row.lauk      ?? '',
+    sayur:     row.sayur     ?? '',
+    minuman:   row.minuman   ?? '',
+    buah:      row.buah      ?? '',
+  };
+}
+
+/** Ambil menu dari Supabase untuk tanggal & sesi tertentu */
+export async function getMenu(dateObj, sesi) {
+  const { data, error } = await supabase
+    .from('menu')
+    .select('*')
+    .eq('tanggal', dateKey(dateObj))
+    .eq('sesi', sesi)
+    .maybeSingle();
+
+  if (error) {
+    console.error('getMenu error:', error.message);
+    return { ...EMPTY_MENU };
+  }
+  return rowToMenu(data);
+}
+
+/** Simpan menu ke Supabase (upsert berdasarkan tanggal+sesi) */
+export async function saveMenu(dateObj, sesi, menuData) {
+  const tanggal = dateKey(dateObj);
+
+  // Cek apakah sudah ada row untuk tanggal+sesi ini
+  const { data: existing } = await supabase
+    .from('menu')
+    .select('id')
+    .eq('tanggal', tanggal)
+    .eq('sesi', sesi)
+    .maybeSingle();
+
+  const payload = {
+    tanggal,
+    sesi,
+    menu_utama: menuData.menuUtama || '',
+    lauk:       menuData.lauk      || '',
+    sayur:      menuData.sayur     || '',
+    minuman:    menuData.minuman   || '',
+    buah:       menuData.buah      || '',
+  };
+
+  if (existing?.id) {
+    // Update
+    const { error } = await supabase
+      .from('menu')
+      .update(payload)
+      .eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    // Insert
+    const { error } = await supabase
+      .from('menu')
+      .insert(payload);
+    if (error) throw error;
+  }
+}
 
 /** Parse lauk string ke array */
 export function laukToArray(lauk = '') {
